@@ -1,0 +1,159 @@
+​import random
+from abc import ABC
+from random import choice
+
+import numpy as np
+from tf_agents.environments import py_environment
+from tf_agents.specs import is_continuous
+from tf_agents.trajectories import time_step as ts, time_step
+
+
+class WarehouseEnv(py_environment.PyEnvironment, ABC):
+
+    def __init__(self, col, row):
+        super(WarehouseEnv).__init__()
+        self.ARTICLE_DICT = dict(Cola=1, Sprite=2, Fanta=3, Cola_Zero=4, Cola_Light=5, Mezzo_Mix=6)
+        # (ARTICLE_DICT)
+        self.ARTICLE = list(self.ARTICLE_DICT.values())
+        # print(ARTICLE)
+
+        self.DEMAND_WAREHOUSE = [['1', '2', '3', '1', '1', '1'],
+                                 ['1', '2'],
+                                 ['3', '2', '1', '1'],
+                                 ['4'],
+                                 ['1', '6', '1']]
+
+        self._episode_ended = False
+        self.row = row
+        self.col = col
+        self._action_spec = is_continuous(spec=np.float64).BoundedArraySpec(shape=(1,), dtype=np.float64, minimum=0,
+                                                                            maximum=1,
+                                                                            name='action')
+        self._observation_spec = is_continuous(spec=np.float64).BoundedArraySpec(shape=(25,), dtype=np.float64,
+                                                                                 minimum=0,
+                                                                                 maximum=25, name='observation')
+        self.Supply_Warehouse = np.zeros([self.row, self.col], dtype=np.float64)
+        print(self.Supply_Warehouse)
+        self._state = self.Supply_Warehouse
+
+    def _reset(self):
+        self._state = self.Supply_Warehouse
+        self._episode_ended = False
+        return time_step.restart(np.array([self._state], dtype=np.float64))
+
+    def action_spec(self):
+        return self._action_spec
+
+    def observation_spec(self):
+        return self._observation_spec
+
+    def add_to_supply_warehouse(self):
+        for row in range(self.row):
+            for col in range(self.col):
+                if self.Supply_Warehouse[row][col] == 0:
+                    if self.Supply_Warehouse[row - 1][col - 1] != 0:
+                        self.Supply_Warehouse[row][col] += random.choice(list(self.ARTICLE_DICT.values()))
+                        break
+                return self._state
+
+    def check_demand(self):
+        for row in self._state:
+            for col in self._state:
+                if self._state[row][col] > self._state[:, 1] or self._state[row][col] < self._state[
+                    row + 1, col + 1] == 0:
+                    if self._state[row][col] == self.DEMAND_WAREHOUSE[:, :]:
+                        return self._state and self.DEMAND_WAREHOUSE
+
+    def remove_article(self):
+        for row in range(self.row):
+            for col in range(self.col):
+                if self.check_demand is True:
+                    self.DEMAND_WAREHOUSE[:, :] = 0
+                    return self.Supply_Warehouse
+
+    def _step(self, action):
+        if self._episode_ended:
+            return self.reset()
+        # action = action.item()
+        if action == 0:  # add article to the supply warehouse
+            self.add_to_supply_warehouse()
+            new_article = random.choice(list(self.ARTICLE_DICT.values()))
+            self._state += new_article
+            return ts.transition(np.array([self._state], dtype=np.float64), reward=1, discount=0.9)
+        if all in self._state > 0:
+            self._episode_ended = True
+            return ts.termination(np.array([self._state], dtype=np.float64), reward=-9)
+
+        if action == 1:  # Checks demand arbitrarily and remove article from supply warehouse and similar value in
+            # Demand list becomes 0
+            check = [self.add_to_supply_warehouse, self.check_demand]
+            choice(check)()
+            if self.check_demand is True:
+                self.remove_article()
+                return ts.transition(np.array([self._state], dtype=np.float64), reward=5, discount=0.9)
+            elif len(self.DEMAND_WAREHOUSE) == 0:
+                self._episode_ended = True
+                return ts.termination(np.array([self._state], dtype=np.float64), reward=2)
+            else:
+                return ts.transition(np.array([self._state], dtype=np.float64), reward=0, discount=0.9)
+
+        info = {}
+        return self._observation_spec, self._reward, info
+
+
+2. from tf_agents.environments import tf_py_environment, utils
+from WarehouseEnv import WarehouseEnv
+
+python_environment = WarehouseEnv(5, 7)
+utils.validate_py_environment(python_environment, episodes=5)
+tf_env = tf_py_environment.TFPyEnvironment(python_environment)
+
+
+
+Description:
+I'm trying to design and simulate a warehouse environment where adding the article to the warehouse (column wise if the previous column is filled).
+Checking demand list and if the article in the demand list (article from '0' index in demand list) matches the articles in warehouse (articles in columns towards the right side) then both values = 0 (i.e., article from warehouse is removed to satisfy demand and hence demand is satisfied, the similar value in demand list is also cleared).
+This function after remmoving the article is called removing article.
+This cycle contnuous until demand list is 0 or warehouse is full.
+rewards are based on how I want the Env to behave.
+
+But I have a value error if I use bounded (Discrete )array:
+
+ValueError: Given "time_step: TimeStep(
+
+{° discount': array(1., dtype=fLoat32),
+
+"observation': array(IL[0, 0, 0, 0, 0],
+
+[0, 0, 0, 0, 0],
+
+[0, 0, 0, 0, 0],
+
+[o,
+
+0, 0, 0, 0],
+
+[0, 0, 0, 0, 0]]], dtype=int32),
+
+*reward': array(0., dtype=FLoat32),
+
+'step_type": array(0, dtype=int32)}) does not match expected 'time_step_spec': Timestep(
+
+{'discount': BoundedArraySpec (shape=), dtype=dtype('FLoat32'), name='discount', minimum=0.0, maximum=1.0),
+
+'observation': BoundedArraySpec (shape=(5, 5), type=dtype ('int32'), name='observation', minimum=0, maximum=10),
+
+"reward': ArraySpec (shape=), dtype=dtype ('FLoat32'), name='reward'),
+
+"step_type': ArraySpec(shape=), dtype=dtype('int32'), name='step_type')})
+
+
+
+I tried it by changing the action to continuous which gives me this error:
+
+line 29, in __init__
+    self._action_spec = is_continuous(spec=np.float64).BoundedArraySpec(shape=(1,), dtype=np.float64, minimum=0,
+AttributeError: 'bool' object has no attribute 'BoundedArraySpec'
+
+
+I'm in desperate need of help. Please help!!!!
